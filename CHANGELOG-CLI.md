@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.2.1](https://github.com/metacurb/AeroTizen/compare/cli-v2.2.0...cli-v2.2.1) (2026-10-23)
+
+
+### Bug Fixes
+
+* **cli:** ship only the standalone CLI executable ([36c05a3](https://github.com/metacurb/AeroTizen/commit/36c05a3331c08b37cc6e380fbecb114f18970ca2))
+
 ## [2.2.0](https://github.com/metacurb/AeroTizen/compare/cli-v2.1.0...cli-v2.2.0) (2026-10-23)
 
 
