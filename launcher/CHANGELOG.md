@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.7.0](https://github.com/metacurb/AeroTizen/compare/launcher-v2.6.0...launcher-v2.7.0) (2026-11-03)
+
+
+### Features
+
+* release CLI and launcher independently ([902b798](https://github.com/metacurb/AeroTizen/commit/902b798d42d6b2c6c8993a925feafec24aadfbcc))
+* release CLI and launcher independently ([680b9c8](https://github.com/metacurb/AeroTizen/commit/680b9c8bc733104b9154d367b8b530ece5abed06))
+
 ## [2.6.0](https://github.com/helalaou/AeroTizen/compare/launcher-v2.5.0...launcher-v2.6.0) (2026-11-03)
 
 
