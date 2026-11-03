@@ -1,21 +1,3 @@
-# Changelog
+# CLI changelog
 
-## [2.2.1](https://github.com/metacurb/AeroTizen/compare/cli-v2.2.0...cli-v2.2.1) (2026-10-23)
-
-
-### Bug Fixes
-
-* **cli:** ship only the standalone CLI executable ([36c05a3](https://github.com/metacurb/AeroTizen/commit/36c05a3331c08b37cc6e380fbecb114f18970ca2))
-
-## [2.2.0](https://github.com/metacurb/AeroTizen/compare/cli-v2.1.0...cli-v2.2.0) (2026-10-23)
-
-
-### Features
-
-* release CLI and launcher independently ([902b798](https://github.com/metacurb/AeroTizen/commit/902b798d42d6b2c6c8993a925feafec24aadfbcc))
-* release CLI and launcher independently ([680b9c8](https://github.com/metacurb/AeroTizen/commit/680b9c8bc733104b9154d367b8b530ece5abed06))
-
-## CLI changelog
-
-CLI releases use `cli-vX.Y.Z` tags. Release Please adds new entries here.
-For the earlier combined release history, see [CHANGELOG.md](CHANGELOG.md).
+The CLI release history is now in [cli/CHANGELOG.md](cli/CHANGELOG.md).

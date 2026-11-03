@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import zipfile
@@ -17,6 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("build_release", ROOT / "tools/build_release.py")
 build = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(build)
+CLI_ROOT = ROOT / "cli"
+CLI_SPEC = importlib.util.spec_from_file_location("build_cli_release", CLI_ROOT / "tools/build_release.py")
+cli_build = importlib.util.module_from_spec(CLI_SPEC)
+CLI_SPEC.loader.exec_module(cli_build)
 
 
 @pytest.fixture
@@ -37,6 +42,8 @@ def launcher(tmp_path):
         "js/main.js",
         "service/index.js",
         "service/artmode.js",
+        "service/home-mode.js",
+        "service/home-store.js",
     ):
         (app / filename).write_bytes(f"contents: {filename}".encode())
     (app / "release.json").write_text('{"min_cli_version": "2.2.0"}')
@@ -50,12 +57,23 @@ def launcher(tmp_path):
         "css/.DS_Store",
     ):
         (app / filename).write_text("must not ship")
+    runtime = root / "dist/launcher"
+    shutil.copytree(app, runtime)
+    (runtime / "index.html").write_text(
+        '<div id="home-root"></div><div id="settings-root"></div><script src="js/launcher-ui.js"></script>'
+    )
+    (runtime / "js/launcher-ui.js").write_text("compiled Home and Settings")
+    (runtime / "licenses").mkdir()
+    (runtime / "licenses/preact.txt").write_text("MIT License")
+    (runtime / "licenses/lucide-preact.txt").write_text("ISC License; inherited Feather MIT notice")
+    (runtime / "src/settings").mkdir(parents=True)
+    (runtime / "src/settings/index.tsx").write_text("must not ship")
     return root
 
 
 def test_launcher_is_unsigned_deterministic_and_has_verified_manifest(launcher, tmp_path):
     first = build.build_launcher(launcher, tmp_path / "first", "launcher-v2.3.0")
-    for source in (launcher / "launcher").rglob("*"):
+    for source in (launcher / "dist/launcher").rglob("*"):
         os.utime(source, (1_800_000_000, 1_800_000_000))
     second = build.build_launcher(launcher, tmp_path / "second", "launcher-v2.3.0")
     assert first.read_bytes() == second.read_bytes()
@@ -65,12 +83,17 @@ def test_launcher_is_unsigned_deterministic_and_has_verified_manifest(launcher, 
             "css/style.css",
             "icon.png",
             "index.html",
+            "js/launcher-ui.js",
             "js/main.js",
+            "licenses/lucide-preact.txt",
+            "licenses/preact.txt",
             "service/artmode.js",
+            "service/home-mode.js",
+            "service/home-store.js",
             "service/index.js",
         ]
         for name in archive.namelist():
-            assert archive.read(name) == (launcher / "launcher" / name).read_bytes()
+            assert archive.read(name) == (launcher / "dist/launcher" / name).read_bytes()
     manifest = json.loads((first.parent / "launcher-release.json").read_text())
     assert manifest == {
         "schema_version": 1,
@@ -127,30 +150,129 @@ def test_launcher_rejects_mismatched_versions(launcher, tmp_path):
 
 
 def test_launcher_requires_background_service(launcher, tmp_path):
-    (launcher / "launcher/service/index.js").unlink()
+    (launcher / "dist/launcher/service/index.js").unlink()
     with pytest.raises(ValueError, match="missing required runtime file"):
         build.build_launcher(launcher, tmp_path / "dist")
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Creating symlinks requires elevated Windows privileges")
 def test_launcher_rejects_symlink_runtime_file(launcher, tmp_path):
-    source = launcher / "launcher/js/main.js"
+    source = launcher / "dist/launcher/js/main.js"
     source.unlink()
     source.symlink_to(launcher / "launcher/release.json")
     with pytest.raises(ValueError, match="without symlinks"):
         build.build_launcher(launcher, tmp_path / "dist")
 
 
+def test_launcher_requires_compiled_runtime(launcher, tmp_path):
+    shutil.rmtree(launcher / "dist/launcher")
+    with pytest.raises(ValueError, match="run npm ci and npm run build"):
+        build.build_launcher(launcher, tmp_path / "assets")
+    assert not (tmp_path / "assets").exists()
+
+
+def test_launcher_rejects_stale_compiled_manifest(launcher, tmp_path):
+    manifest = launcher / "dist/launcher/config.xml"
+    manifest.write_text(manifest.read_text().replace('version="2.3.0"', 'version="2.2.0"'))
+    with pytest.raises(ValueError, match="stale"):
+        build.build_launcher(launcher, tmp_path / "assets")
+    assert not (tmp_path / "assets").exists()
+
+
+@pytest.mark.parametrize("name", ["js/launcher-ui.js", "licenses/preact.txt", "licenses/lucide-preact.txt"])
+def test_launcher_requires_ui_runtime_and_licenses(launcher, tmp_path, name):
+    (launcher / "dist/launcher" / name).unlink()
+    with pytest.raises(ValueError, match=r"(?i)runtime file"):
+        build.build_launcher(launcher, tmp_path / "assets")
+    assert not (tmp_path / "assets").exists()
+
+
+def test_launcher_rejects_legacy_settings_markup(launcher, tmp_path):
+    (launcher / "dist/launcher/index.html").write_text('<div id="editor"></div>')
+    with pytest.raises(ValueError, match="Preact Home mount"):
+        build.build_launcher(launcher, tmp_path / "assets")
+    assert not (tmp_path / "assets").exists()
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "clock-layouts.js",
+        "continue-row.js",
+        "home-screen.js",
+        "settings-ui.js",
+        "inputs-view.js",
+        "status-view.js",
+        "brands-view.js",
+        "wave-background.js",
+    ],
+)
+def test_launcher_rejects_legacy_renderer_assets(launcher, tmp_path, name):
+    (launcher / "dist/launcher/js" / name).write_text("obsolete renderer")
+    with pytest.raises(ValueError, match="contains legacy renderer"):
+        build.build_launcher(launcher, tmp_path / "assets")
+    assert not (tmp_path / "assets").exists()
+
+
+@pytest.mark.parametrize(
+    ("html", "error"),
+    [
+        ('<div id="home-root"></div>', "Preact Settings mount"),
+        ('<div id="home-root"></div><div id="settings-root"></div>', "shared UI script"),
+    ],
+)
+def test_launcher_requires_both_views_and_the_shared_bundle(launcher, tmp_path, html, error):
+    (launcher / "dist/launcher/index.html").write_text(html)
+    with pytest.raises(ValueError, match=error):
+        build.build_launcher(launcher, tmp_path / "assets")
+    assert not (tmp_path / "assets").exists()
+
+
 def test_cli_tag_must_match_before_build_starts(tmp_path):
     with pytest.raises(ValueError, match="does not match"):
-        build.build_cli(ROOT, tmp_path / "dist", "launcher-v0.0.0")
+        cli_build.build_cli(CLI_ROOT, tmp_path / "dist", "launcher-v0.0.0")
     assert not (tmp_path / "dist").exists()
 
 
-@pytest.mark.parametrize("option", ["--help", "--version"])
-def test_inspector_options_do_not_contact_tv(option, tmp_path):
+def test_legacy_cli_build_command_delegates_and_checks_the_tag(tmp_path):
+    output = tmp_path / "dist"
     result = subprocess.run(
-        [sys.executable, "-m", "aerotizen.inspect_app", option],
+        [
+            sys.executable,
+            str(ROOT / "tools/build_release.py"),
+            "cli",
+            "--tag",
+            "launcher-v0.0.0",
+            "--output",
+            str(output),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    assert result.returncode == 1
+    assert "does not match cli-v" in result.stderr
+    assert "Traceback" not in result.stderr
+    assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("--help",),
+        ("--version",),
+        ("update", "--help"),
+        ("inspect", "--help"),
+        ("home", "status", "--help"),
+        ("home", "backup", "--help"),
+        ("home", "apply", "--help"),
+        ("home", "restore", "--help"),
+    ],
+)
+def test_cli_options_do_not_contact_tv(arguments, tmp_path):
+    result = subprocess.run(
+        [sys.executable, "-m", "aerotizen.cli", *arguments],
         cwd=tmp_path,
         capture_output=True,
         text=True,
@@ -158,3 +280,47 @@ def test_inspector_options_do_not_contact_tv(option, tmp_path):
         timeout=5,
     )
     assert "aerotizen" in result.stdout
+
+
+def test_cli_release_requires_the_home_helper_before_freezing(tmp_path):
+    source = tmp_path / "src/aerotizen"
+    source.mkdir(parents=True)
+    (source / "__init__.py").write_text('__version__ = "2.2.0"\n')
+    with pytest.raises(ValueError, match="Home helper"):
+        cli_build.build_cli(tmp_path, tmp_path / "output")
+    assert not (tmp_path / "output").exists()
+
+
+def add_weather_runtime(launcher):
+    runtime = launcher / "dist/launcher"
+    (runtime / "js/photo-weather.js").write_text("local weather scenes")
+    weather = runtime / "assets/weather"
+    weather.mkdir(parents=True)
+    names = [
+        f"{scene}.jpg"
+        for scene in ("sun", "partly", "cloud", "rain", "storm", "snow", "fog", "night", "sunset")
+    ]
+    for name in [*names, "CREDITS.md", "MANIFEST.json"]:
+        (weather / name).write_bytes(f"original asset: {name}".encode())
+    return weather
+
+
+def test_weather_release_includes_all_scenes_and_provenance_without_changing_bytes(launcher, tmp_path):
+    weather = add_weather_runtime(launcher)
+    first = build.build_launcher(launcher, tmp_path / "first")
+    second = build.build_launcher(launcher, tmp_path / "second")
+    assert first.read_bytes() == second.read_bytes()
+    with zipfile.ZipFile(first) as archive:
+        names = [name for name in archive.namelist() if name.startswith("assets/weather/")]
+        assert len(names) == 11
+        for path in weather.iterdir():
+            assert archive.read("assets/weather/" + path.name) == path.read_bytes()
+
+
+@pytest.mark.parametrize("missing", ["night.jpg", "CREDITS.md", "MANIFEST.json"])
+def test_weather_release_refuses_missing_runtime_asset_or_provenance(launcher, tmp_path, missing):
+    weather = add_weather_runtime(launcher)
+    (weather / missing).unlink()
+    with pytest.raises(ValueError, match="Runtime file"):
+        build.build_launcher(launcher, tmp_path / "output")
+    assert not (tmp_path / "output").exists()
